@@ -2,8 +2,8 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('lock')
-    .setDescription('Khóa quyền gửi tin nhắn của kênh chat hiện tại'),
+    .setName('unlock')
+    .setDescription('Mở khóa quyền gửi tin nhắn của kênh chat hiện tại'),
 
   async execute(interaction) {
     if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
@@ -11,9 +11,9 @@ module.exports = {
     }
     try {
       await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
-        SendMessages: false
+        SendMessages: true
       });
-      await interaction.reply({ content: '✅ Đã khóa kênh chat này thành công! 🔒' });
+      await interaction.reply({ content: '✅ Đã mở khóa kênh chat này thành công! 🔓' });
     } catch (err) {
       await interaction.reply({ content: `❌ Thất bại: ${err.message}`, ephemeral: true });
     }
@@ -25,9 +25,9 @@ module.exports = {
     }
     try {
       await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, {
-        SendMessages: false
+        SendMessages: true
       });
-      message.reply('✅ Kênh chat đã được khóa thành công! 🔒');
+      message.reply('✅ Kênh chat đã được mở khóa thành công! 🔓');
     } catch (err) {
       message.reply(`❌ Lỗi: ${err.message}`);
     }
