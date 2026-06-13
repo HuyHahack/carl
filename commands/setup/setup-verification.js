@@ -1,132 +1,106 @@
-const db = require('../../database');
-
-// Bộ nhớ đệm lưu trữ số lượng tin nhắn tạm thời để chống Spam
-const antiSpamMap = new Map();
-// Bộ nhớ đệm đếm số lần vi phạm của từng người dùng để phân cấp hình phạt cách ly
-const spamInfractionMap = new Map();
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const db = require('../../database'); // Đã sửa đường dẫn lùi 2 cấp chính xác
 
 module.exports = {
-  name: 'messageCreate',
-  async execute(message, client) {
-    if (message.author.bot || !message.guild) return;
+  data: new SlashCommandBuilder()
+    .setName('setup-verification')
+    .setDescription('Cài đặt cổng xác minh bảo mật chống phá máy chủ')
+    .addRoleOption(opt => opt.setName('role').setDescription('Vai trò được mở khóa sau khi xác minh').setRequired(true))
+    .addChannelOption(opt => opt.setName('channel').setDescription('Kênh gửi nút bấm xác minh').setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    // A. PHÁT HIỆN LỆNH TÙY CHỈNH CHẠY KHÔNG CẦN PREFIX (Không cần ?)
-    const triggerWord = message.content.toLowerCase().trim();
-    const customRes = await db.pool.query(
-      'SELECT response_text FROM custom_commands WHERE guild_id = $1 AND cmd_name = $2',
-      [message.guild.id, triggerWord]
-    ).catch(() => ({ rows: [] }));
+  async execute(interaction) {
+    const role = interaction.options.getRole('role');
+    const channel = interaction.options.getChannel('channel');
 
-    if (customRes.rows.length > 0) {
-      return await message.reply(customRes.rows[0].response_text).catch(() => {});
+    try {
+      await db.pool.query(
+        'UPDATE guild_configs SET verify_role_id = $1 WHERE guild_id = $2',
+        [role.id, interaction.guild.id]
+      );
+
+      // CÀI ĐẶT PHÂN QUYỀN KÊNH CHỐNG BYPASS:
+      // Cho phép @everyone vào kênh này xem nhưng không được chat (chỉ bấm nút)
+      await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        ViewChannel: true,
+        SendMessages: false,
+        ReadMessageHistory: true
+      });
+
+      // Cho phép vai trò đã verify ẩn/không cần xem kênh này nữa sau khi xác minh xong
+      await channel.permissionOverwrites.edit(role, {
+        ViewChannel: false
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00FF00)
+        .setTitle('🛡️ CỔNG XÁC MINH BẢO MẬT')
+        .setDescription('Vui lòng bấm vào nút **Xác minh** phía dưới để mở khóa toàn bộ máy chủ!')
+        .addFields({
+          name: '⚠️ Lưu ý khuyên dùng để chống lỗi Bypass:',
+          value: 'Để tránh thành viên chưa xác minh vẫn tự do xem các kênh chat khác:\n' +
+                 `1. Vào **Cài đặt Server** -> **Vai trò** -> Chọn **@everyone** -> Tắt quyền **Xem kênh** (View Channels).\n` +
+                 `2. Vào cài đặt vai trò **${role.name}** -> Bật quyền **Xem kênh** (View Channels).\n` +
+                 `Lúc này, người chưa xác minh chỉ có thể nhìn thấy kênh <#${channel.id}> này!`
+        })
+        .setTimestamp();
+
+      const button = new ButtonBuilder()
+        .setCustomId('verify_member_btn')
+        .setLabel('✅ Xác minh ngay')
+        .setStyle(ButtonStyle.Success);
+
+      const row = new ActionRowBuilder().addComponents(button);
+
+      await channel.send({ embeds: [embed], components: [row] });
+      await interaction.reply({ content: '✅ Đã thiết lập cổng xác minh và phân quyền kênh thành công!', ephemeral: true });
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({ content: `❌ Lỗi phân quyền kênh: ${err.message}`, ephemeral: true });
+    }
+  },
+
+  async executePrefix(message, args) {
+    if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return message.reply('❌ Chỉ dành cho Quản trị viên (Administrator) máy chủ!');
     }
 
-    const config = await db.getGuildConfig(message.guild.id);
+    const role = message.mentions.roles.first();
+    if (!role) return message.reply('❌ Cú pháp: `?setup-verification @vai_trò` (Nút bấm sẽ gửi tại kênh hiện tại)');
 
-    // B. ANTI-MENTION (Chống spam tag)
-    const mentionCount = message.mentions.users.size + message.mentions.roles.size;
-    const mentionLimit = config.anti_mention_limit || 5;
-    if (mentionCount > mentionLimit) {
-      await message.delete().catch(() => {});
-      return message.channel.send(`⚠️ **${message.author.username}**, không được tag quá nhiều người cùng một lúc!`).then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
-    }
+    try {
+      await db.pool.query(
+        'UPDATE guild_configs SET verify_role_id = $1 WHERE guild_id = $2',
+        [role.id, message.guild.id]
+      );
 
-    // C. ANTI-INVITE (Chặn link mời server khác)
-    if (config.anti_invite_toggle && /discord\.(gg|com\/invite)\/[a-zA-Z0-9]+/i.test(message.content)) {
-      await message.delete().catch(() => {});
-      return message.channel.send(`⚠️ **${message.author.username}**, quảng cáo link máy chủ khác bị cấm ở đây!`).then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
-    }
+      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, {
+        ViewChannel: true,
+        SendMessages: false,
+        ReadMessageHistory: true
+      });
 
-    // D. ANTI-LINK (Chặn các liên kết ngoài)
-    if (config.anti_link_toggle && (message.content.includes('http://') || message.content.includes('https://'))) {
-      await message.delete().catch(() => {});
-      return message.channel.send(`⚠️ **${message.author.username}**, liên kết ngoài bị cấm tại kênh chat này!`).then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
-    }
+      await message.channel.permissionOverwrites.edit(role, {
+        ViewChannel: false
+      });
 
-    // E. ANTI-SPAM BẢO MẬT (Message rate limiting & mute escalation)
-    if (config.anti_spam_toggle) {
-      const now = Date.now();
-      const userData = antiSpamMap.get(message.author.id) || [];
-      userData.push(now);
+      const embed = new EmbedBuilder()
+        .setColor(0x00FF00)
+        .setTitle('🛡️ CỔNG XÁC MINH BẢO MẬT')
+        .setDescription('Vui lòng bấm vào nút dưới đây để mở khóa server!\n\n*Lưu ý: Nhớ cài đặt quyền @everyone trong Server thành không thể xem kênh, và cho phép vai trò đã xác minh được xem kênh để chống bypass.*');
 
-      const recentMessages = userData.filter(time => now - time < 5000); // Lọc tin nhắn gửi trong 5 giây qua
-      antiSpamMap.set(message.author.id, recentMessages);
+      const button = new ButtonBuilder()
+        .setCustomId('verify_member_btn')
+        .setLabel('✅ Xác minh ngay')
+        .setStyle(ButtonStyle.Success);
 
-      if (recentMessages.length > 5) { // Spam quá 5 tin/5 giây
-        await message.delete().catch(() => {}); // Xóa tin nhắn spam
+      const row = new ActionRowBuilder().addComponents(button);
 
-        // Hệ thống đếm số lần vi phạm trong bộ nhớ đệm
-        const violationCount = (spamInfractionMap.get(message.author.id) || 0) + 1;
-        spamInfractionMap.set(message.author.id, violationCount);
-
-        const member = await message.guild.members.fetch(message.author.id).catch(() => null);
-
-        if (violationCount === 1) {
-          // Lần 1: Cảnh báo 1/5 gửi tin riêng tư qua DM
-          await message.author.send('⚠️ **CẢNH BÁO SPAM (1/5):** Vui lòng không gửi tin nhắn quá nhanh trong máy chủ!').catch(() => {});
-          const pubMsg = await message.channel.send(`⚠️ Phát hiện hành vi spam từ <@${message.author.id}>! Đã xóa tin nhắn và cảnh báo riêng.`);
-          setTimeout(() => pubMsg.delete().catch(() => {}), 5000);
-        } else if (violationCount === 2) {
-          // Lần 2: Mute 10 giây
-          if (member && member.moderatable) {
-            await member.timeout(10 * 1000, 'Spam lần 2');
-            const pubMsg = await message.channel.send(`🔇 Phát hiện spam từ <@${message.author.id}>! Đã tiến hành cách ly **10 giây** (Cảnh báo 2/5).`);
-            setTimeout(() => pubMsg.delete().catch(() => {}), 5000);
-          }
-        } else if (violationCount === 3) {
-          // Lần 3: Mute 1 phút
-          if (member && member.moderatable) {
-            await member.timeout(60 * 1000, 'Spam lần 3');
-            const pubMsg = await message.channel.send(`🔇 Phát hiện spam từ <@${message.author.id}>! Đã tiến hành cách ly **1 phút** (Cảnh báo 3/5).`);
-            setTimeout(() => pubMsg.delete().catch(() => {}), 5000);
-          }
-        } else if (violationCount === 4) {
-          // Lần 4: Mute 30 phút
-          if (member && member.moderatable) {
-            await member.timeout(30 * 60 * 1000, 'Spam lần 4');
-            const pubMsg = await message.channel.send(`🔇 Phát hiện spam từ <@${message.author.id}>! Đã tiến hành cách ly **30 phút** (Cảnh báo 4/5).`);
-            setTimeout(() => pubMsg.delete().catch(() => {}), 5000);
-          }
-        } else if (violationCount >= 5) {
-          // Lần 5+: Mute 1 ngày (86400 giây)
-          if (member && member.moderatable) {
-            await member.timeout(24 * 60 * 60 * 1000, 'Spam lần 5');
-            const pubMsg = await message.channel.send(`🔇 Phát hiện spam nghiêm trọng từ <@${message.author.id}>! Đã cách ly **1 ngày** (Cảnh báo 5/5).`);
-            setTimeout(() => pubMsg.delete().catch(() => {}), 10000);
-          }
-        }
-        return; // Dừng xử lý các logic khác của tin nhắn này
-      }
-    }
-
-    // F. STICKY MESSAGES (Tin nhắn dán cuối kênh chat)
-    const stickyRes = await db.pool.query('SELECT * FROM sticky_messages WHERE channel_id = $1', [message.channel.id]).catch(() => ({ rows: [] }));
-    if (stickyRes.rows.length > 0) {
-      const sticky = stickyRes.rows[0];
-      
-      if (sticky.last_message_id) {
-        const lastMsg = await message.channel.messages.fetch(sticky.last_message_id).catch(() => null);
-        if (lastMsg) await lastMsg.delete().catch(() => {});
-      }
-
-      const newStickyMsg = await message.channel.send({ content: `📌 **LƯU Ý:**\n${sticky.content}` });
-      await db.pool.query('UPDATE sticky_messages SET last_message_id = $1 WHERE channel_id = $2', [newStickyMsg.id, message.channel.id]).catch(() => {});
-    }
-
-    // G. Xử lý các lệnh prefix hệ thống thông thường khác
-    const prefix = config.prefix || '?';
-    if (!message.content.startsWith(prefix)) return;
-
-    const args = message.content.slice(prefix.length).trim().split(/ +/);
-    const commandName = args.shift().toLowerCase();
-
-    const command = client.commands.get(commandName);
-    if (command && typeof command.executePrefix === 'function') {
-      try {
-        await command.executePrefix(message, args);
-      } catch (err) {
-        console.error(err);
-      }
+      await message.channel.send({ embeds: [embed], components: [row] });
+      message.reply('✅ Đã thiết lập cổng xác minh thành công!');
+    } catch (err) {
+      console.error(err);
+      message.reply(`❌ Lỗi: ${err.message}`);
     }
   }
 };
