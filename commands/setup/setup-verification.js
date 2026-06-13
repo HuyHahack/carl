@@ -1,4 +1,4 @@
-const db = require('../database');
+const db = require('../../database');
 
 // Bộ nhớ đệm lưu trữ số lượng tin nhắn tạm thời để chống Spam
 const antiSpamMap = new Map();
