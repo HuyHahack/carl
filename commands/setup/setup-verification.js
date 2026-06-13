@@ -5,29 +5,32 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('setup-verification')
     .setDescription('Cài đặt cổng xác minh bảo mật chống phá máy chủ')
-    .addRoleOption(opt => opt.setName('role').setDescription('Vai trò được mở khóa sau khi xác minh').setRequired(true))
+    .addRoleOption(opt => opt.setName('rolecap').setDescription('Vai trò được cấp sau khi xác minh (Member)').setRequired(true))
+    .addRoleOption(opt => opt.setName('rolexoa').setDescription('Vai trò bị xóa sau khi xác minh (Unverified)').setRequired(true))
     .addChannelOption(opt => opt.setName('channel').setDescription('Kênh gửi nút bấm xác minh').setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
-    const role = interaction.options.getRole('role');
+    const roleAdd = interaction.options.getRole('rolecap');
+    const roleRemove = interaction.options.getRole('rolexoa');
     const channel = interaction.options.getChannel('channel');
 
     try {
+      // Cập nhật cả 2 vai trò vào Database (autorole_id sẽ là vai trò tự xóa và tự gán khi mới join)
       await db.pool.query(
-        'UPDATE guild_configs SET verify_role_id = $1 WHERE guild_id = $2',
-        [role.id, interaction.guild.id]
+        'UPDATE guild_configs SET verify_role_id = $1, autorole_id = $2 WHERE guild_id = $3',
+        [roleAdd.id, roleRemove.id, interaction.guild.id]
       );
 
-      // Cho phép @everyone vào kênh này xem nhưng không được chat (chỉ bấm nút)
+      // Phân quyền kênh gửi nút: @everyone vào kênh này xem nhưng không được chat (chỉ bấm nút)
       await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
         ViewChannel: true,
         SendMessages: false,
         ReadMessageHistory: true
       });
 
-      // Cho phép vai trò đã verify ẩn/không cần xem kênh này nữa sau khi xác minh xong
-      await channel.permissionOverwrites.edit(role, {
+      // Ẩn kênh xác minh đối với những thành viên đã xác minh thành công
+      await channel.permissionOverwrites.edit(roleAdd, {
         ViewChannel: false
       });
 
@@ -57,22 +60,42 @@ module.exports = {
       return message.reply('❌ Chỉ dành cho Quản trị viên (Administrator) máy chủ!');
     }
 
-    const role = message.mentions.roles.first();
-    if (!role) return message.reply('❌ Cú pháp: `?setup-verification @vai_trò` (Nút bấm sẽ gửi tại kênh hiện tại)');
+    // Bộ phân tích hỗ trợ nhận diện cả Tag/Mention và nhập ID trực tiếp
+    const getRole = (arg) => {
+      if (!arg) return null;
+      const roleId = arg.replace(/[<@&>]/g, '');
+      return message.guild.roles.cache.get(roleId);
+    };
+
+    const getChannel = (arg) => {
+      if (!arg) return null;
+      const channelId = arg.replace(/[<#>]/g, '');
+      return message.guild.channels.cache.get(channelId);
+    };
+
+    const roleAdd = getRole(args[0]);
+    const roleRemove = getRole(args[1]);
+    const channel = getChannel(args[2]);
+
+    if (!roleAdd || !roleRemove || !channel) {
+      return message.reply('❌ Cú pháp thiếu tham số! Vui lòng nhập: `?setup-verification <@rolecap> <@rolexoa> <#channel>` (Hỗ trợ nhập ID trực tiếp)');
+    }
 
     try {
+      // Lưu thông tin vào database
       await db.pool.query(
-        'UPDATE guild_configs SET verify_role_id = $1 WHERE guild_id = $2',
-        [role.id, message.guild.id]
+        'UPDATE guild_configs SET verify_role_id = $1, autorole_id = $2 WHERE guild_id = $3',
+        [roleAdd.id, roleRemove.id, message.guild.id]
       );
 
-      await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, {
+      // Phân quyền kênh gửi nút
+      await channel.permissionOverwrites.edit(message.guild.roles.everyone, {
         ViewChannel: true,
         SendMessages: false,
         ReadMessageHistory: true
       });
 
-      await message.channel.permissionOverwrites.edit(role, {
+      await channel.permissionOverwrites.edit(roleAdd, {
         ViewChannel: false
       });
 
@@ -88,11 +111,11 @@ module.exports = {
 
       const row = new ActionRowBuilder().addComponents(button);
 
-      await message.channel.send({ embeds: [embed], components: [row] });
-      message.reply('✅ Đã thiết lập cổng xác minh thành công!');
+      await channel.send({ embeds: [embed], components: [row] });
+      message.reply(`✅ Đã thiết lập cổng xác minh thành công!\n👉 **Vai trò cấp (Member):** <@&${roleAdd.id}>\n👉 **Vai trò xóa (Unverified):** <@&${roleRemove.id}>\n👉 **Kênh gửi nút:** <#${channel.id}>`);
     } catch (err) {
       console.error(err);
-      message.reply(`❌ Lỗi: ${err.message}`);
+      message.reply(`❌ Gặp lỗi trong quá trình phân quyền hoặc cập nhật DB: ${err.message}`);
     }
   }
 };
