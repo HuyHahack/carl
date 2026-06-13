@@ -1,7 +1,7 @@
-const db = require('../database');
+const db = require('../database'); // Lùi 1 cấp chính xác
 const { EmbedBuilder } = require('discord.js');
 
-// Bộ lưu trữ in-memory để chống spam bot gia nhập dồn dập (Anti-raid)
+// Bộ lưu trữ in-memory chống spam bot gia nhập dồn dập
 const raidMap = new Map();
 
 module.exports = {
@@ -21,16 +21,15 @@ module.exports = {
     const joinTimestamps = raidMap.get(member.guild.id) || [];
     joinTimestamps.push(now);
 
-    const recentJoins = joinTimestamps.filter(time => now - time < 10000); // Lọc lượng join trong 10 giây qua
+    const recentJoins = joinTimestamps.filter(time => now - time < 10000);
     raidMap.set(member.guild.id, recentJoins);
 
     if (recentJoins.length > (config.anti_raid_limit || 10)) {
-      // Nếu số lượng join vượt ngưỡng, bot có thể cảnh báo hoặc tạm thời kick
       await member.kick('Server đang bị tấn công dồn dập (Raid), kích hoạt bảo vệ tự động!').catch(() => {});
       return;
     }
 
-    // ============ 3. GÁN VAI TRÒ TỰ ĐỘNG (Auto-role) ============
+    // ============ 3. GÁN VAI TRÒ TỰ ĐỘNG (Unverified Role) ============
     if (config.autorole_id) {
       const role = member.guild.roles.cache.get(config.autorole_id);
       if (role) await member.roles.add(role).catch(() => {});

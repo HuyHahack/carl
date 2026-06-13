@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const db = require('../../database'); // Đã sửa đường dẫn lùi 2 cấp chính xác
+const db = require('../../database'); // Lùi 2 cấp chính xác
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,7 +19,6 @@ module.exports = {
         [role.id, interaction.guild.id]
       );
 
-      // CÀI ĐẶT PHÂN QUYỀN KÊNH CHỐNG BYPASS:
       // Cho phép @everyone vào kênh này xem nhưng không được chat (chỉ bấm nút)
       await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
         ViewChannel: true,
@@ -36,13 +35,6 @@ module.exports = {
         .setColor(0x00FF00)
         .setTitle('🛡️ CỔNG XÁC MINH BẢO MẬT')
         .setDescription('Vui lòng bấm vào nút **Xác minh** phía dưới để mở khóa toàn bộ máy chủ!')
-        .addFields({
-          name: '⚠️ Lưu ý khuyên dùng để chống lỗi Bypass:',
-          value: 'Để tránh thành viên chưa xác minh vẫn tự do xem các kênh chat khác:\n' +
-                 `1. Vào **Cài đặt Server** -> **Vai trò** -> Chọn **@everyone** -> Tắt quyền **Xem kênh** (View Channels).\n` +
-                 `2. Vào cài đặt vai trò **${role.name}** -> Bật quyền **Xem kênh** (View Channels).\n` +
-                 `Lúc này, người chưa xác minh chỉ có thể nhìn thấy kênh <#${channel.id}> này!`
-        })
         .setTimestamp();
 
       const button = new ButtonBuilder()
@@ -87,7 +79,7 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor(0x00FF00)
         .setTitle('🛡️ CỔNG XÁC MINH BẢO MẬT')
-        .setDescription('Vui lòng bấm vào nút dưới đây để mở khóa server!\n\n*Lưu ý: Nhớ cài đặt quyền @everyone trong Server thành không thể xem kênh, và cho phép vai trò đã xác minh được xem kênh để chống bypass.*');
+        .setDescription('Vui lòng bấm vào nút dưới đây để mở khóa server!');
 
       const button = new ButtonBuilder()
         .setCustomId('verify_member_btn')

@@ -1,4 +1,4 @@
-const db = require('../database');
+const db = require('../database'); // Lùi 1 cấp chính xác
 
 module.exports = {
   name: 'interactionCreate',
@@ -28,26 +28,37 @@ module.exports = {
 
         try {
           const config = await db.getGuildConfig(interaction.guild.id);
-          const verifyRoleId = config.verify_role_id;
+          const verifyRoleId = config.verify_role_id; // Vai trò Member nhận được sau khi xác minh
+          const autoRoleId = config.autorole_id;       // Vai trò Unverified nhận tự động khi vào server
 
           if (!verifyRoleId) {
             return interaction.editReply({ content: '❌ Cổng xác minh chưa được cài đặt vai trò mở khóa bởi Admin!' });
           }
 
-          const role = interaction.guild.roles.cache.get(verifyRoleId);
-          if (!role) {
-            return interaction.editReply({ content: '❌ Không tìm thấy vai trò mở khóa trong máy chủ này!' });
+          const memberRole = interaction.guild.roles.cache.get(verifyRoleId);
+          if (!memberRole) {
+            return interaction.editReply({ content: '❌ Không tìm thấy vai trò Thành viên (Member) trong máy chủ này!' });
           }
 
           if (interaction.member.roles.cache.has(verifyRoleId)) {
             return interaction.editReply({ content: '⚠️ Bạn đã được xác minh từ trước rồi!' });
           }
 
-          await interaction.member.roles.add(role);
-          await interaction.editReply({ content: '✅ Xác minh thành công! Chúc bạn có trải nghiệm vui vẻ trong máy chủ.' });
+          // A. Tiến hành thêm vai trò Thành viên (Member)
+          await interaction.member.roles.add(memberRole);
+
+          // B. Tiến hành gỡ bỏ vai trò Chưa xác minh (Unverified) nếu có
+          if (autoRoleId) {
+            const unverifiedRole = interaction.guild.roles.cache.get(autoRoleId);
+            if (unverifiedRole && interaction.member.roles.cache.has(autoRoleId)) {
+              await interaction.member.roles.remove(unverifiedRole);
+            }
+          }
+
+          await interaction.editReply({ content: '✅ Xác minh thành công! Bạn đã được nhận vai trò Thành viên và gỡ bỏ vai trò Chưa xác minh.' });
         } catch (err) {
           console.error(err);
-          await interaction.editReply({ content: `❌ Bot không có đủ quyền hạn để gán vai trò này: ${err.message}` });
+          await interaction.editReply({ content: `❌ Bot không có đủ quyền hạn để thực hiện gán/gỡ vai trò: ${err.message}` });
         }
       }
     }
