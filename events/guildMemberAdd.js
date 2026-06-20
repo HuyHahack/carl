@@ -10,10 +10,14 @@ module.exports = {
     const config = await db.getGuildConfig(member.guild.id);
 
     // ============ 1. CHỐNG TÀI KHOẢN CLONE (Alt Account check) ============
-    const accountAgeDays = Math.floor((Date.now() - member.user.createdTimestamp) / (1000 * 60 * 60 * 24));
-    if (accountAgeDays < (config.alt_age_limit || 3)) {
-      await member.kick('Tài khoản clone bị bảo vệ tự động bởi hệ thống Anti-Alt.').catch(() => {});
-      return;
+    // Nếu alt_age_limit bằng 0 hoặc chưa cấu hình đúng, hệ thống sẽ tự động BỎ QUA không kick tài khoản
+    const altLimit = (config.alt_age_limit !== null && config.alt_age_limit !== undefined) ? config.alt_age_limit : 3;
+    if (altLimit > 0) {
+      const accountAgeDays = Math.floor((Date.now() - member.user.createdTimestamp) / (1000 * 60 * 60 * 24));
+      if (accountAgeDays < altLimit) {
+        await member.kick('Tài khoản clone bị bảo vệ tự động bởi hệ thống Anti-Alt.').catch(() => {});
+        return;
+      }
     }
 
     // ============ 2. CHỐNG THAM GIA Ồ ẠT (Anti-raid) ============
